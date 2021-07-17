@@ -5,7 +5,6 @@ usethis::use_package("locfit",type="Depends")
 usethis::use_package("stats",type="Imports")
 usethis::use_package("SummarizedExperiment",type="Imports")
 usethis::use_package("DESeq2",type="Imports")
-usethis::use_package("DESeq",type="Imports")
 usethis::use_package("drc",type="Imports")
 usethis::use_package("reshape2",type="Imports")
 usethis::use_package("dgof",type="Imports")
@@ -37,7 +36,7 @@ setClass(
   
   prototype=list(
     beta=-Inf,
-    method="DESeq",
+    method="DESeq2(Wald)",
     trended=T,
     shrunkLFC=F,
     modified=T,
@@ -82,8 +81,7 @@ setMethod(f="testDRB",signature="DEBRADataSet", definition=function(drb) {
     drb@beta=0
   }
   
-  if ( drb@shrunkLFC==T & drb@method=="DESeq") { warning("method 'DESeq' does not support shrunkLFC=T") }
-  
+
   if (toupper(drb@method)=="DESEQ2(LRT)") {
     res=deseq2_LRT(
       drb@counts,
@@ -108,16 +106,7 @@ setMethod(f="testDRB",signature="DEBRADataSet", definition=function(drb) {
     )
   }
   
-  if (toupper(drb@method)=="DESEQ") {
-    res=DESeq_1(
-      drb@counts,
-      drb@control_names,
-      drb@condition_names,
-      drb@modified,
-      drb@beta,
-      drb@trended
-    )
-  }
+
   
   drb@results=res
   return(drb)
@@ -263,11 +252,7 @@ setMethod(f="MAplot",signature="DEBRADataSet", definition=function(drb,FDR=0.25,
     FDR_name="padj"
     pval="pvalue"
   }
-  if (toupper(drb@method)=="DESEQ") {
-    logFC="log2FoldChange"
-    FDR_name="padj"
-    pval="pval"
-  }
+
   
   # Select data and remove barcodes with logFC = 0 and non-finite LogFC
   if (filtered) {
@@ -679,76 +664,6 @@ deseq2_LRT=function(counts,c_cols,disp_cols,modified,beta,fitted_only,shrunkLFC)
 
 
 
-
-DESeq_1=function(counts,c_cols,disp_cols,modified,beta,fitted_only) {
-  
-  
-  groups=c(rep("A",length(c_cols)),rep("B",length(disp_cols)))
-  
-  
-  if (modified) {
-    
-    cds = DESeq::newCountDataSet( counts[,c(c_cols,disp_cols)], condition=groups)
-    cds = DESeq::estimateSizeFactors( cds )
-    cds = DESeq::estimateDispersions( cds ,fitType="local")
-    
-    # sfB=cds@phenoData@data[["sizeFactor"]][cds@phenoData@data[["condition"]]=="B"]
-    # sfA=cds@phenoData@data[["sizeFactor"]][cds@phenoData@data[["condition"]]=="A"]
-    #
-    # pseudo_baseMeans= base_meanV2(counts,c(c_cols), sf=sfA ) #,disp_cols
-    
-    sfB=cds@phenoData@data[["sizeFactor"]][cds@phenoData@data[["condition"]]=="B"]
-    pseudo_baseMeans= base_meanV2(counts,c(c_cols,disp_cols), sf= cds@phenoData@data[["sizeFactor"]] )
-    
-    
-    if (fitted_only==T) {
-      cust_fit=disp_fit_deseq2(counts,disp_cols,sf=sfB)
-      
-      cds@featureData@data[["disp_pooled"]]=cust_fit$fit(pseudo_baseMeans+1)
-    }
-    
-    else{
-      
-      cust_fit=deseq_disp_shrunk(counts,disp_cols,sf=sfB)
-      disp=cust_fit[["disp"]]
-      disp[is.na(disp)]=max(disp,na.rm =T)
-      
-      cds@featureData@data[["disp_pooled"]]<-disp
-      
-      
-    }
-    
-    cds@featureData@data[["disp_pooled"]][pseudo_baseMeans<beta]=max(cds@featureData@data[["disp_pooled"]],na.rm=T)
-    cds@featureData@data[["disp_pooled"]][is.na(cds@featureData@data[["disp_pooled"]])]=max(cds@featureData@data[["disp_pooled"]],na.rm=T)
-    
-    
-    res1=DESeq::nbinomTest( cds, "A", "B" )
-    res1$foldChange=(res1$baseMeanB+0.15)/(res1$baseMeanA+0.15)
-    res1$log2FoldChange=log2(res1$foldChange)
-    rownames(res1)=res1$id
-    res1=res1[,-which(colnames(res1)=="id")]
-    
-    
-  }
-  else {
-    cds = DESeq::newCountDataSet( counts[,c(c_cols,disp_cols)], condition=groups)
-    cds = DESeq::estimateSizeFactors( cds )
-    cds = DESeq::estimateDispersions( cds ,fitType="local",method="per-condition")
-    
-    
-    res1=DESeq::nbinomTest( cds, "A", "B" )
-    res1$foldChange=(res1$baseMeanB+0.15)/(res1$baseMeanA+0.15)
-    res1$log2FoldChange=log2(res1$foldChange)
-    rownames(res1)=res1$id
-    res1=res1[,-which(colnames(res1)=="id")]
-  }
-  
-  return(res1)
-  
-  
-}
-
-
 DESeq2_Wald=function(counts,c_cols,disp_cols,modified,beta,fitted_only,shrunkLFC)  {
   
   groups=c(rep("A",length(c_cols)),rep("B",length(disp_cols)))
@@ -859,11 +774,6 @@ pCountFilter=function(res,method,val.thr=0,FDR.thr=0.2) {
     pval="pvalue"
   }
   
-  if (toupper(method)=="DESEQ") {
-    logFC="log2FoldChange"
-    FDR="padj"
-    pval="pval"
-  }
   
   
   theta=seq(0,1,0.002)
@@ -909,7 +819,7 @@ DEBRA=function( counts ,
                 control_names  ,
                 condition_names ,
                 beta=-Inf,
-                method="DESeq",
+                method="DESeq2(Wald)",
                 trended=T,
                 filter_FDR=0.2,
                 default_beta = 0,
@@ -961,14 +871,14 @@ DEBRA=function( counts ,
 DEBRADataSet = function( counts ,
                          control_names  ,
                          condition_names ,
-                         method=c("DESeq","DESeq2(Wald)","DESeq2(LRT)"),
+                         method=c("DESeq2(Wald)","DESeq2(LRT)"),
                          beta=-Inf,
                          trended=T,
                          shrunkLFC=F,
                          modified=T,
                          default_beta=10) {
   
-  method = match.arg(method, choices = c("DESeq","DESeq2(Wald)","DESeq2(LRT)"))
+  method = match.arg(method, choices = c("DESeq2(Wald)","DESeq2(LRT)"))
   
   drb=new("DEBRADataSet",counts=as.data.frame(counts), control_names=control_names,
           condition_names=condition_names, beta=beta,method=method,trended=trended,
