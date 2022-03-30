@@ -13,7 +13,7 @@ Start by installing the package
 
 ``` r
 library(devtools)
-install_github("YevhenAkimov/DEBRA")
+install_github("YevhenAkimov/DEBRA_1.01")
 ```
 
 Let's attach the DEBRA library and load example dataset
